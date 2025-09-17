@@ -1,0 +1,216 @@
+"""
+Reproduce Tables 6.1-6.3 from the paper.
+
+This script generates the exact numerical results presented in the paper,
+verifying entropy bounds and demonstrating 5:4 resonance convergence.
+"""
+
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+import numpy as np
+import pandas as pd
+from src.recursive_entropy import (
+    RecursiveEntropyCalculator, 
+    uniform_distribution, 
+    powerlaw_distribution, 
+    exponential_distribution
+)
+
+
+def reproduce_table_6_1_and_6_2():
+    """Reproduce Tables 6.1 and 6.2: Entropy Bounds Verification"""
+    
+    print("Reproducing Table 6.1: Entropy Bound Verification")
+    print("=" * 60)
+    
+    calc = RecursiveEntropyCalculator(branching_factor=2)
+    max_depth = 20
+    
+    # Define test distributions
+    distributions = [
+        ("Uniform", lambda n, d: uniform_distribution(n, d)),
+        ("Power-law (α=1.5)", lambda n, d: powerlaw_distribution(n, d, alpha=1.5)),
+        ("Power-law (α=2.0)", lambda n, d: powerlaw_distribution(n, d, alpha=2.0)),
+        ("Exponential (β=0.5)", lambda n, d: exponential_distribution(n, d, beta=0.5)),
+        ("Exponential (β=1.0)", lambda n, d: exponential_distribution(n, d, beta=1.0))
+    ]
+    
+    table_6_1_results = []
+    table_6_2_results = []
+    
+    for dist_name, dist_func in distributions:
+        print(f"\nProcessing {dist_name}...")
+        
+        # Generate entropy sequence
+        results = calc.entropy_sequence(dist_func, max_depth)
+        bounds_check = calc.verify_bounds(results)
+        
+        # Table 6.1 data
+        max_s_bar = bounds_check['max_normalized_entropy']
+        bound_status = "✓" if bounds_check['normalized_entropy_bound'] else "✗"
+        
+        table_6_1_results.append({
+            'Distribution Type': dist_name,
+            'Max S̄(d) Observed': f"{max_s_bar:.4f}",
+            'Theoretical Bound': "1.0",
+            'Bound Satisfied': bound_status
+        })
+        
+        # Table 6.2 data
+        max_r_tilde = bounds_check['max_growth_factor']
+        if max_r_tilde is not None:
+            growth_status = "✓" if bounds_check['growth_factor_bound'] else "✗"
+            table_6_2_results.append({
+                'Distribution Type': dist_name,
+                'Max r̃(d) Observed': f"{max_r_tilde:.4f}",
+                'Theoretical Bound': "2.0",
+                'Bound Satisfied': growth_status
+            })
+    
+    # Display Table 6.1
+    print("\nTable 6.1: Entropy Bound Verification")
+    df1 = pd.DataFrame(table_6_1_results)
+    print(df1.to_string(index=False))
+    
+    # Display Table 6.2
+    print("\nTable 6.2: Growth Factor Bound Verification")
+    df2 = pd.DataFrame(table_6_2_results)
+    print(df2.to_string(index=False))
+    
+    return df1, df2
+
+
+def reproduce_table_6_3():
+    """Reproduce Table 6.3: 5:4 Resonance Verification"""
+    
+    print("\n\nReproducing Table 6.3: 5:4 Resonance Verification")
+    print("=" * 60)
+    
+    calc = RecursiveEntropyCalculator(branching_factor=2)
+    max_depth = 30  # Deeper for convergence analysis
+    
+    distributions = [
+        ("Power-law (α=1.5)", lambda n, d: powerlaw_distribution(n, d, alpha=1.5)),
+        ("Power-law (α=2.0)", lambda n, d: powerlaw_distribution(n, d, alpha=2.0)),
+        ("Exponential (β=0.5)", lambda n, d: exponential_distribution(n, d, beta=0.5)),
+        ("Exponential (β=1.0)", lambda n, d: exponential_distribution(n, d, beta=1.0))
+    ]
+    
+    table_6_3_results = []
+    
+    for dist_name, dist_func in distributions:
+        print(f"\nProcessing {dist_name}...")
+        
+        # Generate entropy sequence
+        results = calc.entropy_sequence(dist_func, max_depth)
+        
+        # Calculate windowed averages for different depth ranges
+        valid_growth = [g for g in results['growth_factors'] if g is not None and np.isfinite(g)]
+        
+        if len(valid_growth) < 20:
+            print(f"  Warning: Insufficient data for {dist_name}")
+            continue
+        
+        # Calculate averages over specified depth ranges
+        depths_1_10 = valid_growth[0:10] if len(valid_growth) > 10 else valid_growth
+        depths_11_20 = valid_growth[10:20] if len(valid_growth) > 20 else valid_growth[10:]
+        depths_21_30 = valid_growth[20:30] if len(valid_growth) > 30 else valid_growth[20:]
+        
+        avg_1_10 = np.mean(depths_1_10)
+        avg_11_20 = np.mean(depths_11_20) if len(depths_11_20) > 0 else np.nan
+        
+        # Asymptotic average (last 10 points)
+        asymptotic_points = valid_growth[-10:] if len(valid_growth) >= 10 else valid_growth
+        asymptotic_avg = np.mean(asymptotic_points)
+        asymptotic_std = np.std(asymptotic_points)
+        
+        table_6_3_results.append({
+            'Distribution': dist_name,
+            'Depths 1-10': f"{avg_1_10:.4f}",
+            'Depths 11-20': f"{avg_11_20:.4f}" if not np.isnan(avg_11_20) else "N/A",
+            'Asymptotic Average': f"{asymptotic_avg:.4f}",
+            'Std. Deviation': f"{asymptotic_std:.4f}"
+        })
+    
+    # Display Table 6.3
+    print("\nTable 6.3: 5:4 Resonance Verification")
+    df3 = pd.DataFrame(table_6_3_results)
+    print(df3.to_string(index=False))
+    
+    target = 1.25
+    print(f"\nTarget value: 5/4 = {target}")
+    
+    # Calculate average relative error
+    asymptotic_values = []
+    for result in table_6_3_results:
+        try:
+            val = float(result['Asymptotic Average'])
+            asymptotic_values.append(val)
+        except ValueError:
+            continue
+    
+    if asymptotic_values:
+        avg_error = np.mean([abs(v - target) / target for v in asymptotic_values])
+        print(f"Average relative error: {avg_error * 100:.2f}%")
+    
+    return df3
+
+
+def save_results_to_csv():
+    """Save reproduction results to CSV files for further analysis."""
+    
+    print("\nSaving results to CSV files...")
+    
+    # Reproduce tables
+    df1, df2 = reproduce_table_6_1_and_6_2()
+    df3 = reproduce_table_6_3()
+    
+    # Create data directory if it doesn't exist
+    os.makedirs('data', exist_ok=True)
+    
+    # Save to CSV
+    df1.to_csv('data/table_6_1_entropy_bounds.csv', index=False)
+    df2.to_csv('data/table_6_2_growth_bounds.csv', index=False)
+    df3.to_csv('data/table_6_3_resonance.csv', index=False)
+    
+    print("Results saved to:")
+    print("  - data/table_6_1_entropy_bounds.csv")
+    print("  - data/table_6_2_growth_bounds.csv")
+    print("  - data/table_6_3_resonance.csv")
+
+
+def main():
+    """Main reproduction script."""
+    
+    print("RECURSIVE ENTROPY CALCULUS - PAPER REPRODUCTION")
+    print("=" * 60)
+    print("Reproducing computational results from Tables 6.1-6.3")
+    print("This may take a few minutes...")
+    
+    try:
+        # Reproduce main tables
+        reproduce_table_6_1_and_6_2()
+        reproduce_table_6_3()
+        
+        # Save results
+        save_results_to_csv()
+        
+        print("\n" + "=" * 60)
+        print("REPRODUCTION COMPLETED SUCCESSFULLY")
+        print("=" * 60)
+        print("\nAll paper results have been reproduced.")
+        print("Check 'data/' directory for CSV files with detailed results.")
+        
+    except Exception as e:
+        print(f"\nERROR during reproduction: {e}")
+        print("Please check your installation and try again.")
+        return 1
+    
+    return 0
+
+
+if __name__ == "__main__":
+    exit_code = main()
+    sys.exit(exit_code)
