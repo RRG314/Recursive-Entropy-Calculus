@@ -1,0 +1,207 @@
+"""
+Unit tests for theoretical bounds verification.
+
+These tests verify that the proven mathematical bounds S̄(d) ≤ 1 and r̃(d) ≤ 2
+hold for all implemented distributions and edge cases.
+"""
+
+import pytest
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+import numpy as np
+from src.recursive_entropy import (
+    RecursiveEntropyCalculator,
+    uniform_distribution,
+    powerlaw_distribution,
+    exponential_distribution
+)
+
+
+class TestEntropyBounds:
+    """Test entropy bounds S̄(d) ≤ 1"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.calc = RecursiveEntropyCalculator(branching_factor=2)
+        
+    def test_uniform_distribution_achieves_bound(self):
+        """Test that uniform distribution achieves S̄(d) = 1"""
+        for depth in range(1, 8):
+            n_cells = 2 ** depth
+            probs = uniform_distribution(n_cells, depth)
+            result = self.calc.recursive_entropy(probs, depth)
+            
+            # Should achieve theoretical maximum
+            assert abs(result['S_bar_d'] - 1.0) < 1e-10, f"Uniform distribution should achieve S̄(d) = 1 at depth {depth}"
+    
+    def test_powerlaw_distribution_respects_bound(self):
+        """Test that power-law distributions satisfy S̄(d) ≤ 1"""
+        alphas = [1.5, 2.0, 3.0]
+        depths = range(1, 8)
+        
+        for alpha in alphas:
+            for depth in depths:
+                n_cells = 2 ** depth
+                probs = powerlaw_distribution(n_cells, depth, alpha)
+                result = self.calc.recursive_entropy(probs, depth)
+                
+                assert result['S_bar_d'] <= 1.0 + 1e-10, f"Power-law (α={alpha}) violates bound at depth {depth}"
+                assert result['S_bar_d'] < 1.0, f"Non-uniform distribution should not achieve maximum at depth {depth}"
+    
+    def test_exponential_distribution_respects_bound(self):
+        """Test that exponential distributions satisfy S̄(d) ≤ 1"""
+        betas = [0.5, 1.0, 2.0]
+        depths = range(1, 8)
+        
+        for beta in betas:
+            for depth in depths:
+                n_cells = 2 ** depth
+                probs = exponential_distribution(n_cells, depth, beta)
+                result = self.calc.recursive_entropy(probs, depth)
+                
+                assert result['S_bar_d'] <= 1.0 + 1e-10, f"Exponential (β={beta}) violates bound at depth {depth}"
+    
+    def test_deterministic_distribution_minimum(self):
+        """Test that deterministic distribution gives S̄(d) = 0"""
+        for depth in range(1, 6):
+            n_cells = 2 ** depth
+            # Deterministic: all probability on first cell
+            probs = np.zeros(n_cells)
+            probs[0] = 1.0
+            
+            result = self.calc.recursive_entropy(probs, depth)
+            assert abs(result['S_d']) < 1e-10, f"Deterministic distribution should have S(d) = 0 at depth {depth}"
+            assert abs(result['S_bar_d']) < 1e-10, f"Deterministic distribution should have S̄(d) = 0 at depth {depth}"
+    
+    def test_extreme_skewed_distribution(self):
+        """Test bounds with extremely skewed distributions"""
+        for depth in range(2, 6):
+            n_cells = 2 ** depth
+            probs = np.ones(n_cells) * 1e-10
+            probs[0] = 1.0 - (n_cells - 1) * 1e-10  # Almost deterministic
+            
+            result = self.calc.recursive_entropy(probs, depth)
+            assert result['S_bar_d'] <= 1.0 + 1e-10, f"Extreme skewed distribution violates bound at depth {depth}"
+
+
+class TestGrowthFactorBounds:
+    """Test growth factor bounds r̃(d) ≤ 2"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.calc = RecursiveEntropyCalculator(branching_factor=2)
+        
+    def test_uniform_distribution_growth_factors(self):
+        """Test that uniform distribution gives expected growth factors"""
+        results = self.calc.entropy_sequence(uniform_distribution, max_depth=10)
+        
+        for i, r_tilde in enumerate(results['growth_factors']):
+            if r_tilde is not None:
+                depth = i + 1  # growth_factors[i] corresponds to r̃(i+1)
+                expected = (depth + 1) / depth
+                
+                assert abs(r_tilde - expected) < 1e-10, f"Uniform growth factor incorrect at depth {depth}"
+                assert r_tilde <= 2.0 + 1e-10, f"Growth factor exceeds bound at depth {depth}"
+    
+    def test_maximum_growth_factor_at_depth_1(self):
+        """Test that r̃(1) = 2 is the maximum for uniform distribution"""
+        results = self.calc.entropy_sequence(uniform_distribution, max_depth=10)
+        growth_factors = [g for g in results['growth_factors'] if g is not None]
+        
+        max_growth = max(growth_factors)
+        assert abs(max_growth - 2.0) < 1e-10, "Maximum growth factor should be 2.0"
+        assert growth_factors[0] == max_growth, "Maximum should occur at first growth factor r̃(1)"
+    
+    def test_structured_distributions_growth_bounds(self):
+        """Test that structured distributions respect growth bounds"""
+        
+        test_distributions = [
+            ("powerlaw_1.5", lambda n, d: powerlaw_distribution(n, d, 1.5)),
+            ("powerlaw_2.0", lambda n, d: powerlaw_distribution(n, d, 2.0)),
+            ("exponential_0.5", lambda n, d: exponential_distribution(n, d, 0.5)),
+            ("exponential_1.0", lambda n, d: exponential_distribution(n, d, 1.0))
+        ]
+        
+        for name, dist_func in test_distributions:
+            results = self.calc.entropy_sequence(dist_func, max_depth=8)
+            bounds = self.calc.verify_bounds(results)
+            
+            assert bounds['growth_factor_bound'], f"{name} violates growth factor bound"
+            
+            # Check individual growth factors
+            for i, r_tilde in enumerate(results['growth_factors']):
+                if r_tilde is not None and np.isfinite(r_tilde):
+                    depth = i + 1
+                    assert r_tilde <= 2.0 + 1e-10, f"{name} exceeds growth bound at depth {depth}: r̃={r_tilde}"
+    
+    def test_bounds_verification_function(self):
+        """Test the bounds verification function itself"""
+        
+        # Test with known good distribution
+        results = self.calc.entropy_sequence(uniform_distribution, max_depth=5)
+        bounds = self.calc.verify_bounds(results)
+        
+        assert bounds['normalized_entropy_bound'] == True
+        assert bounds['growth_factor_bound'] == True
+        assert abs(bounds['max_normalized_entropy'] - 1.0) < 1e-10
+        assert abs(bounds['max_growth_factor'] - 2.0) < 1e-10
+
+
+class TestEdgeCases:
+    """Test edge cases and boundary conditions"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.calc = RecursiveEntropyCalculator(branching_factor=2)
+    
+    def test_single_depth(self):
+        """Test calculations at depth=1"""
+        probs = np.array([0.7, 0.3])
+        result = self.calc.recursive_entropy(probs, depth=1)
+        
+        expected_entropy = -0.7 * np.log2(0.7) - 0.3 * np.log2(0.3)
+        
+        assert abs(result['S_d'] - expected_entropy) < 1e-10
+        assert abs(result['S_bar_d'] - expected_entropy) < 1e-10  # S̄(1) = S(1)/1
+    
+    def test_invalid_inputs(self):
+        """Test that invalid inputs raise appropriate errors"""
+        
+        with pytest.raises(ValueError):
+            self.calc.recursive_entropy([0.5, 0.5], depth=0)  # depth < 1
+        
+        with pytest.raises(ValueError):
+            self.calc.recursive_entropy([0.5, 0.5, 0.5], depth=1)  # wrong number of cells
+        
+        with pytest.raises(ValueError):
+            RecursiveEntropyCalculator(branching_factor=1)  # b < 2
+    
+    def test_numerical_precision(self):
+        """Test numerical precision with very small probabilities"""
+        depth = 4
+        n_cells = 2 ** depth
+        
+        # Distribution with very small probabilities
+        probs = np.full(n_cells, 1e-12)
+        probs[0] = 1.0 - (n_cells - 1) * 1e-12
+        
+        result = self.calc.recursive_entropy(probs, depth)
+        
+        # Should not raise numerical errors and should respect bounds
+        assert np.isfinite(result['S_d'])
+        assert np.isfinite(result['S_bar_d'])
+        assert result['S_bar_d'] <= 1.0 + 1e-10
+    
+    def test_non_normalized_input_warning(self):
+        """Test that non-normalized inputs generate warnings"""
+        probs = np.array([0.5, 0.6])  # Sum = 1.1, not normalized
+        
+        with pytest.warns(UserWarning):
+            self.calc.recursive_entropy(probs, depth=1)
+
+
+if __name__ == "__main__":
+    # Run tests if script is called directly
+    pytest.main([__file__, "-v"])
