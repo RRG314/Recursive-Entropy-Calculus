@@ -87,31 +87,31 @@ def recursive_entropy(probabilities, depth, branching_factor):
 - **Universality:** Robust across power-law, exponential distributions
 - **Convergence:** Relative error < 0.2% by depth 20
 
-## ⚠️ Research Status
+## Research Status
 
 **Completed:**
-- ✅ Mathematical proofs for entropy bounds
-- ✅ Computational verification up to depth d=25
-- ✅ Resonance demonstration across distribution families
+- Mathematical proofs for entropy bounds
+- Computational verification up to depth d=25
+- Resonance demonstration across distribution families
 
 **In Progress:**
-- 🔄 Theoretical derivation of 5:4 resonance
-- 🔄 Large-scale real-world dataset validation
-- 🔄 Extension to continuous distributions
+- Theoretical derivation of 5:4 resonance
+- Large-scale real-world dataset validation
+- Extension to continuous distributions
 
 **Needs Validation:**
-- ⚠️ Independent verification of computational results
-- ⚠️ Peer review of mathematical proofs
-- ⚠️ Applications to practical hierarchical systems
+- Independent verification of computational results
+- Peer review of mathematical proofs
+- Applications to practical hierarchical systems
 
-## 💡 Applications
+## Applications
 
 - **Information Theory:** Multi-scale entropy analysis
 - **Algorithm Analysis:** Recursive complexity bounds  
 - **Data Mining:** Hierarchical structure detection
 - **Complex Systems:** Information scaling in fractals
 
-## 🤝 Contributing
+##  Contributing
 
 This is active research. Contributions welcome:
 
@@ -128,7 +128,7 @@ This is active research. Contributions welcome:
 4. Run full test suite (`python -m pytest tests/`)
 5. Submit pull request with clear description
 
-## 📄 Citation
+##  Citation
 
 ```bibtex
 @misc{recursive_entropy_2024,
@@ -140,14 +140,14 @@ This is active research. Contributions welcome:
 }
 ```
 
-## 📜 License
+##  License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## 📧 Contact
+##  Contact
 
-- **Author:** [Author Name]
-- **Email:** [email@institution.edu]
+- **Author:** Steven Reid
+- **Email:** [sreid1118@gmail.com]
 - **Issues:** Use GitHub Issues for questions/bugs
 - **Discussions:** GitHub Discussions for theoretical input
 
