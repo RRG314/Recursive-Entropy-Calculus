@@ -1,0 +1,296 @@
+"""
+Recursive Entropy Calculus (REC) - Core Implementation
+
+This module implements the mathematical framework for analyzing entropy
+in hierarchically partitioned probability spaces.
+
+Author: Stevrn Reid
+License: MIT
+"""
+
+import numpy as np
+from typing import Dict, List, Tuple, Optional, Union
+import warnings
+
+
+class RecursiveEntropyCalculator:
+    """
+    Main class implementing Recursive Entropy Calculus.
+    
+    Provides methods for calculating S(d), S̄(d), and r̃(d) for
+    hierarchically partitioned probability distributions.
+    """
+    
+    def __init__(self, branching_factor: int = 2, eps: float = 1e-15):
+        """
+        Initialize the calculator.
+        
+        Args:
+            branching_factor: Number of subdivisions per cell (b ≥ 2)
+            eps: Numerical precision threshold for log calculations
+        """
+        if branching_factor < 2:
+            raise ValueError("Branching factor must be ≥ 2")
+        
+        self.b = branching_factor
+        self.eps = eps
+        self._max_theoretical = np.log2(self.b)  # Theoretical maximum S̄(d)
+    
+    def shannon_entropy(self, probabilities: np.ndarray) -> float:
+        """
+        Calculate Shannon entropy H = -∑ pᵢ log₂ pᵢ
+        
+        Args:
+            probabilities: Array of probability values
+            
+        Returns:
+            Shannon entropy in bits
+        """
+        # Input validation
+        probabilities = np.asarray(probabilities)
+        if not np.allclose(np.sum(probabilities), 1.0, atol=1e-10):
+            warnings.warn("Probabilities do not sum to 1.0")
+        
+        # Filter out zero probabilities to avoid log(0)
+        nonzero_probs = probabilities[probabilities > self.eps]
+        
+        if len(nonzero_probs) == 0:
+            return 0.0
+        
+        # Calculate entropy
+        return -np.sum(nonzero_probs * np.log2(nonzero_probs))
+    
+    def recursive_entropy(self, probabilities: np.ndarray, depth: int) -> Dict[str, float]:
+        """
+        Calculate recursive entropy measures for given distribution.
+        
+        Args:
+            probabilities: Probability distribution at specified depth
+            depth: Recursive depth d ≥ 1
+            
+        Returns:
+            Dictionary with keys: 'S_d', 'S_bar_d', 'entropy_increment'
+        """
+        if depth < 1:
+            raise ValueError("Depth must be ≥ 1")
+        
+        expected_cells = self.b ** depth
+        if len(probabilities) != expected_cells:
+            raise ValueError(f"Expected {expected_cells} cells for depth {depth}, got {len(probabilities)}")
+        
+        # Calculate entropy
+        S_d = self.shannon_entropy(probabilities)
+        
+        # Calculate normalized entropy
+        S_bar_d = S_d / depth
+        
+        # Calculate entropy increment (requires previous depth)
+        entropy_increment = None  # Will be set if previous entropy provided
+        
+        return {
+            'S_d': S_d,
+            'S_bar_d': S_bar_d, 
+            'entropy_increment': entropy_increment,
+            'depth': depth,
+            'n_cells': len(probabilities)
+        }
+    
+    def growth_factor(self, current_entropy: float, next_entropy: float) -> float:
+        """
+        Calculate growth factor r̃(d) = S(d+1) / S(d)
+        
+        Args:
+            current_entropy: S(d)
+            next_entropy: S(d+1)
+            
+        Returns:
+            Growth factor r̃(d)
+        """
+        if current_entropy <= 0:
+            return float('inf') if next_entropy > 0 else float('nan')
+        
+        return next_entropy / current_entropy
+    
+    def entropy_sequence(self, distribution_generator, max_depth: int) -> Dict[str, List]:
+        """
+        Generate sequence of recursive entropies up to specified depth.
+        
+        Args:
+            distribution_generator: Function that takes (n_cells, depth) -> probabilities
+            max_depth: Maximum recursion depth
+            
+        Returns:
+            Dictionary with entropy sequences and derived measures
+        """
+        results = {
+            'depths': [],
+            'entropies': [],
+            'normalized_entropies': [],
+            'growth_factors': [],
+            'entropy_increments': []
+        }
+        
+        prev_entropy = None
+        
+        for d in range(1, max_depth + 1):
+            n_cells = self.b ** d
+            
+            # Generate probability distribution
+            probs = distribution_generator(n_cells, d)
+            probs = np.asarray(probs)
+            
+            # Normalize probabilities
+            probs = probs / np.sum(probs)
+            
+            # Calculate entropy measures
+            entropy_data = self.recursive_entropy(probs, d)
+            S_d = entropy_data['S_d']
+            S_bar_d = entropy_data['S_bar_d']
+            
+            # Calculate derived measures
+            if prev_entropy is not None:
+                r_tilde = self.growth_factor(prev_entropy, S_d)
+                increment = S_d - prev_entropy
+            else:
+                r_tilde = None
+                increment = None
+            
+            # Store results
+            results['depths'].append(d)
+            results['entropies'].append(S_d)
+            results['normalized_entropies'].append(S_bar_d)
+            results['growth_factors'].append(r_tilde)
+            results['entropy_increments'].append(increment)
+            
+            prev_entropy = S_d
+        
+        return results
+    
+    def verify_bounds(self, results: Dict[str, List]) -> Dict[str, bool]:
+        """
+        Verify theoretical bounds S̄(d) ≤ log₂(b) and r̃(d) ≤ 2 (for b=2)
+        
+        Args:
+            results: Output from entropy_sequence()
+            
+        Returns:
+            Dictionary indicating bound satisfaction
+        """
+        # Check normalized entropy bound
+        max_normalized = max(results['normalized_entropies'])
+        normalized_bound_satisfied = max_normalized <= (self._max_theoretical + 1e-10)
+        
+        # Check growth factor bound (for binary case)
+        if self.b == 2:
+            valid_growth_factors = [g for g in results['growth_factors'] if g is not None]
+            if valid_growth_factors:
+                max_growth = max(valid_growth_factors)
+                growth_bound_satisfied = max_growth <= (2.0 + 1e-10)
+            else:
+                growth_bound_satisfied = True
+        else:
+            growth_bound_satisfied = None  # Bound only proven for b=2
+        
+        return {
+            'normalized_entropy_bound': normalized_bound_satisfied,
+            'growth_factor_bound': growth_bound_satisfied,
+            'max_normalized_entropy': max_normalized,
+            'max_growth_factor': max(valid_growth_factors) if valid_growth_factors else None,
+            'theoretical_normalized_bound': self._max_theoretical,
+            'theoretical_growth_bound': 2.0 if self.b == 2 else None
+        }
+    
+    def resonance_analysis(self, results: Dict[str, List], window_size: int = 10) -> Dict[str, float]:
+        """
+        Analyze convergence to 5:4 resonance ratio.
+        
+        Args:
+            results: Output from entropy_sequence()
+            window_size: Size of averaging window for convergence analysis
+            
+        Returns:
+            Dictionary with resonance analysis results
+        """
+        valid_growth_factors = [g for g in results['growth_factors'] if g is not None and np.isfinite(g)]
+        
+        if len(valid_growth_factors) < window_size:
+            return {
+                'insufficient_data': True,
+                'n_points': len(valid_growth_factors)
+            }
+        
+        # Calculate windowed averages
+        windowed_averages = []
+        for i in range(len(valid_growth_factors) - window_size + 1):
+            window = valid_growth_factors[i:i+window_size]
+            windowed_averages.append(np.mean(window))
+        
+        # Analyze convergence to 5/4 = 1.25
+        target_ratio = 1.25
+        final_windows = windowed_averages[-min(5, len(windowed_averages)):]  # Last few windows
+        
+        asymptotic_average = np.mean(final_windows)
+        asymptotic_std = np.std(final_windows)
+        relative_error = abs(asymptotic_average - target_ratio) / target_ratio
+        
+        return {
+            'asymptotic_average': asymptotic_average,
+            'asymptotic_std': asymptotic_std,
+            'target_ratio': target_ratio,
+            'relative_error': relative_error,
+            'percent_error': relative_error * 100,
+            'convergence_achieved': relative_error < 0.01,  # Within 1%
+            'windowed_averages': windowed_averages,
+            'n_valid_points': len(valid_growth_factors)
+        }
+
+
+def uniform_distribution(n_cells: int, depth: int) -> np.ndarray:
+    """Generate uniform probability distribution."""
+    return np.ones(n_cells) / n_cells
+
+
+def powerlaw_distribution(n_cells: int, depth: int, alpha: float = 1.5) -> np.ndarray:
+    """Generate power-law probability distribution p_j ∝ j^(-α)"""
+    indices = np.arange(1, n_cells + 1)
+    unnormalized = indices ** (-alpha)
+    return unnormalized / np.sum(unnormalized)
+
+
+def exponential_distribution(n_cells: int, depth: int, beta: float = 0.5) -> np.ndarray:
+    """Generate exponential probability distribution p_j ∝ exp(-β*j)"""
+    indices = np.arange(n_cells)
+    unnormalized = np.exp(-beta * indices)
+    return unnormalized / np.sum(unnormalized)
+
+
+# Example usage and testing
+if __name__ == "__main__":
+    print("Recursive Entropy Calculus - Core Implementation Test")
+    
+    # Initialize calculator
+    calc = RecursiveEntropyCalculator(branching_factor=2)
+    
+    # Test uniform distribution
+    print("\n1. Testing uniform distribution:")
+    uniform_results = calc.entropy_sequence(uniform_distribution, max_depth=10)
+    bounds_check = calc.verify_bounds(uniform_results)
+    
+    print(f"Max normalized entropy: {bounds_check['max_normalized_entropy']:.6f}")
+    print(f"Theoretical bound: {bounds_check['theoretical_normalized_bound']:.6f}")
+    print(f"Bound satisfied: {bounds_check['normalized_entropy_bound']}")
+    
+    # Test structured distribution
+    print("\n2. Testing power-law distribution:")
+    powerlaw_results = calc.entropy_sequence(
+        lambda n, d: powerlaw_distribution(n, d, alpha=1.5), 
+        max_depth=15
+    )
+    
+    resonance = calc.resonance_analysis(powerlaw_results)
+    print(f"Asymptotic average: {resonance['asymptotic_average']:.6f}")
+    print(f"Target (5/4): {resonance['target_ratio']:.6f}")
+    print(f"Relative error: {resonance['percent_error']:.2f}%")
+    print(f"Convergence achieved: {resonance['convergence_achieved']}")
+    
+    print("\nCore implementation test completed successfully!")
