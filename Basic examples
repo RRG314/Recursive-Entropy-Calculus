@@ -1,0 +1,230 @@
+"""
+Basic Example: Getting Started with Recursive Entropy Calculus
+
+This example demonstrates the core functionality of the REC framework
+with simple, easy-to-understand examples.
+"""
+
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+import numpy as np
+import matplotlib.pyplot as plt
+from src.recursive_entropy import (
+    RecursiveEntropyCalculator,
+    uniform_distribution,
+    powerlaw_distribution,
+    exponential_distribution
+)
+
+
+def example_1_basic_entropy_calculation():
+    """Example 1: Calculate entropy for a simple distribution"""
+    
+    print("Example 1: Basic Entropy Calculation")
+    print("-" * 40)
+    
+    # Create calculator
+    calc = RecursiveEntropyCalculator(branching_factor=2)
+    
+    # Example: 4 cells at depth 2 (2^2 = 4 cells)
+    depth = 2
+    probabilities = np.array([0.5, 0.3, 0.15, 0.05])  # Non-uniform distribution
+    
+    # Calculate entropy measures
+    result = calc.recursive_entropy(probabilities, depth)
+    
+    print(f"Distribution: {probabilities}")
+    print(f"Depth d = {depth}")
+    print(f"Shannon entropy S({depth}) = {result['S_d']:.4f} bits")
+    print(f"Normalized entropy S̄({depth}) = {result['S_bar_d']:.4f}")
+    print(f"Theoretical maximum S̄(d) = 1.0 (uniform case)")
+    
+    # Compare with uniform distribution
+    uniform_probs = uniform_distribution(4, depth)
+    uniform_result = calc.recursive_entropy(uniform_probs, depth)
+    
+    print(f"\nComparison with uniform distribution:")
+    print(f"Uniform S̄({depth}) = {uniform_result['S_bar_d']:.4f}")
+    print(f"Our distribution achieves {result['S_bar_d']/uniform_result['S_bar_d']:.1%} of maximum entropy")
+
+
+def example_2_entropy_sequence():
+    """Example 2: Generate entropy sequence across multiple depths"""
+    
+    print("\n\nExample 2: Entropy Sequence Analysis")
+    print("-" * 40)
+    
+    calc = RecursiveEntropyCalculator(branching_factor=2)
+    
+    # Generate entropy sequence for power-law distribution
+    print("Analyzing power-law distribution α = 1.5...")
+    results = calc.entropy_sequence(
+        lambda n, d: powerlaw_distribution(n, d, alpha=1.5),
+        max_depth=10
+    )
+    
+    # Display sequence
+    print("\nEntropy Evolution:")
+    print("Depth\tS(d)\tS̄(d)\tr̃(d)")
+    print("-" * 35)
+    
+    for i, d in enumerate(results['depths']):
+        S_d = results['entropies'][i]
+        S_bar_d = results['normalized_entropies'][i]
+        r_tilde = results['growth_factors'][i]
+        
+        if r_tilde is not None:
+            print(f"{d}\t{S_d:.3f}\t{S_bar_d:.3f}\t{r_tilde:.3f}")
+        else:
+            print(f"{d}\t{S_d:.3f}\t{S_bar_d:.3f}\t---")
+
+
+def example_3_bounds_verification():
+    """Example 3: Verify theoretical bounds"""
+    
+    print("\n\nExample 3: Theoretical Bounds Verification")
+    print("-" * 40)
+    
+    calc = RecursiveEntropyCalculator(branching_factor=2)
+    
+    # Test multiple distribution types
+    distributions = [
+        ("Uniform", uniform_distribution),
+        ("Power-law (α=1.5)", lambda n, d: powerlaw_distribution(n, d, alpha=1.5)),
+        ("Exponential (β=1.0)", lambda n, d: exponential_distribution(n, d, beta=1.0))
+    ]
+    
+    print("Distribution\t\tMax S̄(d)\tMax r̃(d)\tBounds OK?")
+    print("-" * 60)
+    
+    for name, dist_func in distributions:
+        results = calc.entropy_sequence(dist_func, max_depth=8)
+        bounds = calc.verify_bounds(results)
+        
+        max_s_bar = bounds['max_normalized_entropy']
+        max_r_tilde = bounds['max_growth_factor']
+        bounds_ok = bounds['normalized_entropy_bound'] and bounds['growth_factor_bound']
+        
+        status = "✓" if bounds_ok else "✗"
+        print(f"{name:<20}\t{max_s_bar:.3f}\t\t{max_r_tilde:.3f}\t\t{status}")
+    
+    print(f"\nTheoretical bounds: S̄(d) ≤ 1.0, r̃(d) ≤ 2.0")
+
+
+def example_4_resonance_demonstration():
+    """Example 4: Demonstrate 5:4 resonance phenomenon"""
+    
+    print("\n\nExample 4: 5:4 Resonance Demonstration")
+    print("-" * 40)
+    
+    calc = RecursiveEntropyCalculator(branching_factor=2)
+    
+    # Generate longer sequence to observe convergence
+    results = calc.entropy_sequence(
+        lambda n, d: powerlaw_distribution(n, d, alpha=1.5),
+        max_depth=20
+    )
+    
+    # Analyze resonance
+    resonance = calc.resonance_analysis(results, window_size=5)
+    
+    print("Resonance Analysis Results:")
+    print(f"Target ratio (5/4): {resonance['target_ratio']:.4f}")
+    print(f"Observed average: {resonance['asymptotic_average']:.4f}")
+    print(f"Standard deviation: {resonance['asymptotic_std']:.4f}")
+    print(f"Relative error: {resonance['percent_error']:.2f}%")
+    print(f"Convergence achieved: {'Yes' if resonance['convergence_achieved'] else 'No'}")
+
+
+def example_5_visualization():
+    """Example 5: Create visualizations of REC behavior"""
+    
+    print("\n\nExample 5: Visualization")
+    print("-" * 40)
+    
+    calc = RecursiveEntropyCalculator(branching_factor=2)
+    
+    # Generate data for different distributions
+    uniform_results = calc.entropy_sequence(uniform_distribution, max_depth=15)
+    powerlaw_results = calc.entropy_sequence(
+        lambda n, d: powerlaw_distribution(n, d, alpha=1.5), 
+        max_depth=15
+    )
+    
+    # Create plots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # Plot 1: Normalized entropy evolution
+    ax1.plot(uniform_results['depths'], uniform_results['normalized_entropies'], 
+             'b-', label='Uniform (theoretical max)', linewidth=2)
+    ax1.plot(powerlaw_results['depths'], powerlaw_results['normalized_entropies'], 
+             'r--', label='Power-law (α=1.5)', linewidth=2)
+    ax1.axhline(y=1.0, color='k', linestyle=':', alpha=0.5, label='Theoretical bound')
+    ax1.set_xlabel('Depth d')
+    ax1.set_ylabel('Normalized Entropy S̄(d)')
+    ax1.set_title('Entropy Evolution Across Depths')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # Plot 2: Growth factor evolution
+    depths = powerlaw_results['depths'][1:]  # Skip first depth (no growth factor)
+    growth_factors = [g for g in powerlaw_results['growth_factors'] if g is not None]
+    
+    ax2.plot(depths, growth_factors, 'r-', linewidth=2, label='Power-law growth factors')
+    ax2.axhline(y=1.25, color='g', linestyle='--', linewidth=2, label='5/4 Resonance Target')
+    ax2.axhline(y=2.0, color='k', linestyle=':', alpha=0.5, label='Theoretical bound')
+    ax2.set_xlabel('Depth d')
+    ax2.set_ylabel('Growth Factor r̃(d)')
+    ax2.set_title('Growth Factor Evolution')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    # Save figure
+    os.makedirs('figures', exist_ok=True)
+    plt.savefig('figures/basic_example_plots.png', dpi=150, bbox_inches='tight')
+    print("Plots saved to: figures/basic_example_plots.png")
+    
+    # Show plot if in interactive environment
+    try:
+        plt.show()
+    except:
+        print("(Plot display not available in this environment)")
+
+
+def main():
+    """Run all basic examples"""
+    
+    print("RECURSIVE ENTROPY CALCULUS - BASIC EXAMPLES")
+    print("=" * 50)
+    
+    try:
+        # Run all examples
+        example_1_basic_entropy_calculation()
+        example_2_entropy_sequence()
+        example_3_bounds_verification()
+        example_4_resonance_demonstration()
+        example_5_visualization()
+        
+        print("\n" + "=" * 50)
+        print("All examples completed successfully!")
+        print("Check the 'figures/' directory for generated plots.")
+        
+    except ImportError as e:
+        print(f"Import error: {e}")
+        print("Please ensure all dependencies are installed: pip install -r requirements.txt")
+        return 1
+    
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return 1
+    
+    return 0
+
+
+if __name__ == "__main__":
+    exit_code = main()
+    sys.exit(exit_code)
